@@ -1,0 +1,5 @@
+docker stats --format "{{.CPUPerc}};{{.MemUsage}};{{.MemPerc}}" |
+    ForEach-Object {
+        $timestamp = (Get-Date).ToString("HH:mm:ss.fff")
+        "$timestamp;$($_)" 
+    } | Out-File text.txt

@@ -1,0 +1,74 @@
+$inputFile = "text.txt"
+$outputFile = "clean.csv"
+
+"Time;CPU%;CPU_frac;MemUsage;MemUsage_MB;Mem%" | Out-File $outputFile -Encoding utf8
+
+function Clean-String {
+    param($s)
+    if ($null -eq $s) { return "" }
+
+    # odstránime znak ESC (0x1B)
+    $s = $s -replace "`u{001B}", ""
+
+    # odstránime klasické escape sekvencie
+    $s = $s -replace "\[[0-9;]*[A-Za-z]", ""
+
+    # odstránime ostatné kontrolné znaky
+    $s = $s -replace '[\p{C}]', ''
+
+    return $s.Trim()
+}
+
+# SPRACOVANIE
+Get-Content $inputFile | ForEach-Object {
+
+    # nový formát času: HH:MM:SS.mmm;
+    if ($_ -notmatch '^([0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3});(.*)$') {
+        return
+    }
+
+    $time = $matches[1].Trim()
+    $raw  = $matches[2]
+
+    $line = Clean-String $raw
+
+    # validná metrika
+    if ($line -notmatch '^[0-9.]+%;.+/[ ]*[0-9.]+[GMK]iB;[0-9.]+%$') {
+        return
+    }
+
+    $parts = $line -split ';'
+    if ($parts.Count -lt 3) { return }
+
+    $cpuPerc = $parts[0].Trim()
+    $memUsageRaw = $parts[1].Trim()
+    $memPerc = $parts[2].Trim()
+
+    # CPU fraction
+    $cpuNumber = ($cpuPerc -replace '%','')
+    [double]$cpuNumParsed = 0
+    if ([double]::TryParse($cpuNumber, [ref]$cpuNumParsed)) {
+        $cpuFrac = [math]::Round($cpuNumParsed / 100, 4)
+    } else {
+        $cpuFrac = 0
+    }
+
+    # Memusage -> MB
+    $memUsed = ($memUsageRaw -split ' / ')[0].Trim()
+    $memMB = 0
+
+    if ($memUsed -match '([0-9]+(\.[0-9]+)?)\s*([KMG]i?)B') {
+        $num = [double]$matches[1]
+        $unit = $matches[3]
+
+        switch -Regex ($unit) {
+            'Ki' { $memMB = $num / 1024 }
+            'Mi' { $memMB = $num }
+            'Gi' { $memMB = $num * 1024 }
+            default { $memMB = $num }
+        }
+    }
+
+    "$time;$cpuPerc;$cpuFrac;$memUsageRaw;$memMB;$memPerc" |
+        Out-File $outputFile -Append -Encoding utf8
+}
